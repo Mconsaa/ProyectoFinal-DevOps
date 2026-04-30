@@ -1,0 +1,75 @@
+groups:
+  - name: app_alerts
+    rules:
+
+      # ── Alta tasa de errores ─────────────────────────────────────────
+      - alert: HighErrorRate
+        expr: |
+          rate(app_requests_total{status=~"5.."}[5m]) /
+          rate(app_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Alta tasa de errores HTTP 5xx"
+          description: "Más del 5% de peticiones están fallando ({{ $value | humanizePercentage }})."
+
+      # ── Alta latencia ────────────────────────────────────────────────
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            rate(app_request_latency_seconds_bucket[5m])
+          ) > 1.0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latencia P95 elevada"
+          description: "El percentil 95 de latencia supera 1 segundo ({{ $value }}s)."
+
+      # ── App caída ────────────────────────────────────────────────────
+      - alert: AppDown
+        expr: up{job="flask-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "La aplicación Flask está caída"
+          description: "No se pueden recolectar métricas de la app desde hace 1 minuto."
+
+  - name: host_alerts
+    rules:
+
+      # ── CPU alto ─────────────────────────────────────────────────────
+      - alert: HighCPU
+        expr: |
+          100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Uso de CPU elevado en {{ $labels.instance }}"
+          description: "El CPU lleva más de 5 minutos por encima del 80% ({{ $value }}%)."
+
+      # ── Poca memoria ─────────────────────────────────────────────────
+      - alert: LowMemory
+        expr: |
+          (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memoria disponible baja en {{ $labels.instance }}"
+          description: "Menos del 15% de memoria libre ({{ $value }}% disponible)."
+
+      # ── Disco casi lleno ─────────────────────────────────────────────
+      - alert: DiskAlmostFull
+        expr: |
+          (1 - node_filesystem_free_bytes{fstype!~"tmpfs|overlay"} /
+               node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disco casi lleno en {{ $labels.instance }}"
+          description: "El disco {{ $labels.mountpoint }} tiene {{ $value }}% de uso."

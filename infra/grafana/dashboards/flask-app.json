@@ -1,0 +1,81 @@
+{
+  "title": "Flask App - Métricas",
+  "uid": "flask-app-dashboard",
+  "tags": ["flask", "app"],
+  "timezone": "browser",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "10s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Peticiones por segundo",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "targets": [{
+        "expr": "sum(rate(app_requests_total[1m]))",
+        "legendFormat": "req/s"
+      }],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 2,
+      "title": "Tasa de errores 5xx",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "targets": [{
+        "expr": "sum(rate(app_requests_total{status=~'5..'}[5m])) / sum(rate(app_requests_total[5m])) * 100",
+        "legendFormat": "% errores"
+      }],
+      "fieldConfig": {"defaults": {"unit": "percent"}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 3,
+      "title": "Latencia P95",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, rate(app_request_latency_seconds_bucket[5m]))",
+        "legendFormat": "P95 latency"
+      }],
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 4,
+      "title": "Total errores acumulados",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "targets": [{"expr": "app_errors_total", "legendFormat": "errores"}],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "id": 5,
+      "title": "Peticiones por endpoint",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "targets": [{
+        "expr": "rate(app_requests_total[1m])",
+        "legendFormat": "{{method}} {{endpoint}} {{status}}"
+      }]
+    },
+    {
+      "id": 6,
+      "title": "Latencia por endpoint (P50/P95/P99)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(app_request_latency_seconds_bucket[5m]))",
+          "legendFormat": "P50 {{endpoint}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(app_request_latency_seconds_bucket[5m]))",
+          "legendFormat": "P95 {{endpoint}}"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    }
+  ]
+}

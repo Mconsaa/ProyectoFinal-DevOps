@@ -1,0 +1,187 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  IMAGE_NAME: cicd-demo-app
+  REGISTRY: ghcr.io
+
+jobs:
+  # ══════════════════════════════════════════════════════════════════
+  # JOB 1 - Tests y calidad de código
+  # ══════════════════════════════════════════════════════════════════
+  test:
+    name: 🧪 Tests unitarios
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar dependencias
+        run: |
+          pip install -r app/requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Ejecutar tests con cobertura
+        run: |
+          pytest app/tests/ -v --cov=app --cov-report=xml --cov-report=term-missing
+
+      - name: Subir reporte de cobertura
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  # ══════════════════════════════════════════════════════════════════
+  # JOB 2 - Escaneo de seguridad (DevSecOps)
+  # ══════════════════════════════════════════════════════════════════
+  security-scan:
+    name: 🔐 Escaneo de seguridad
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Construir imagen Docker
+        run: docker build -t $IMAGE_NAME:${{ github.sha }} ./app
+
+      - name: Escaneo de vulnerabilidades con Trivy (imagen)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ env.IMAGE_NAME }}:${{ github.sha }}"
+          format: "table"
+          exit-code: "1"            # ❌ Bloquea el pipeline si hay CRITICAL
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL"      # Solo bloquea en CRITICAL
+
+      - name: Escaneo de vulnerabilidades con Trivy (filesystem / deps)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "./app"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"            # Solo reporta, no bloquea
+
+      - name: Subir resultados SARIF a GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+      - name: Verificar secretos hardcodeados (truffleHog)
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  # ══════════════════════════════════════════════════════════════════
+  # JOB 3 - Build y publicación de imagen
+  # ══════════════════════════════════════════════════════════════════
+  build:
+    name: 🐳 Build y push de imagen
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Generar versión semántica
+        id: version
+        run: |
+          VERSION="1.0.${{ github.run_number }}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "🏷️ Versión: $VERSION"
+
+      - name: Login al registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extraer metadatos Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build y push multi-plataforma
+        uses: docker/build-push-action@v5
+        with:
+          context: ./app
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}
+
+  # ══════════════════════════════════════════════════════════════════
+  # JOB 4 - Despliegue
+  # ══════════════════════════════════════════════════════════════════
+  deploy:
+    name: 🚀 Despliegue
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    environment:
+      name: production
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Desplegar con Docker Compose
+        env:
+          APP_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          echo "✅ Desplegando versión $APP_VERSION"
+          # En un entorno real:
+          # docker-compose pull app
+          # docker-compose up -d --no-deps app
+          echo "APP_VERSION=$APP_VERSION" > .env
+          echo "Despliegue completado: versión $APP_VERSION"
+
+      - name: Crear Release en GitHub
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "v${{ needs.build.outputs.version }}"
+          release_name: "Release v${{ needs.build.outputs.version }}"
+          body: |
+            ## 🚀 Release v${{ needs.build.outputs.version }}
+
+            **Commit:** ${{ github.sha }}
+            **Build:** #${{ github.run_number }}
+
+            ### Cambios
+            ${{ github.event.head_commit.message }}
+
+            ### Seguridad
+            ✅ Escaneo Trivy completado sin vulnerabilidades CRITICAL
+            ✅ Sin secretos hardcodeados detectados
+          draft: false
+          prerelease: false

@@ -1,0 +1,39 @@
+global:
+  resolve_timeout: 5m
+
+# ── Árbol de enrutamiento ─────────────────────────────────────────────────────
+route:
+  group_by: ["alertname", "severity"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  receiver: "default-receiver"
+
+  routes:
+    - match:
+        severity: critical
+      receiver: "critical-receiver"
+      continue: true
+
+# ── Receptores ────────────────────────────────────────────────────────────────
+receivers:
+  - name: "default-receiver"
+    # En producción real: configurar webhook, email, Slack, etc.
+    # Ejemplo de webhook local para pruebas:
+    # webhook_configs:
+    #   - url: "http://localhost:5001/alerts"
+
+  - name: "critical-receiver"
+    # Para alertas críticas, también se puede escalar a Slack:
+    # slack_configs:
+    #   - api_url: "https://hooks.slack.com/services/TU_WEBHOOK"
+    #     channel: "#alerts"
+    #     text: "{{ .CommonAnnotations.description }}"
+
+# ── Inhibición (evitar duplicados) ────────────────────────────────────────────
+inhibit_rules:
+  - source_match:
+      severity: "critical"
+    target_match:
+      severity: "warning"
+    equal: ["alertname"]

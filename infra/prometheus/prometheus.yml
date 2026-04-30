@@ -1,0 +1,43 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: "local"
+    project: "cicd-demo"
+
+# Archivo de reglas de alertas
+rule_files:
+  - "alerts.yml"
+
+# Configuración del Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# ── Targets de scraping ───────────────────────────────────────────────────────
+scrape_configs:
+
+  # Prometheus mismo
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Aplicación Flask
+  - job_name: "flask-app"
+    static_configs:
+      - targets: ["app:5000"]
+    metrics_path: /metrics
+    scrape_interval: 10s
+
+  # Node Exporter (métricas del host)
+  - job_name: "node-exporter"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # Nginx (si se habilita el módulo stub_status)
+  - job_name: "nginx"
+    static_configs:
+      - targets: ["nginx:80"]
+    metrics_path: /nginx-health
