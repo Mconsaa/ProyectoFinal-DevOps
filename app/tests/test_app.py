@@ -3,7 +3,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.app import app as flask_app
+from app import app as flask_app
 
 @pytest.fixture
 def client():
