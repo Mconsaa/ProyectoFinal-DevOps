@@ -49,6 +49,9 @@ jobs:
     name: 🔐 Escaneo de seguridad
     runs-on: ubuntu-latest
     needs: test
+    permissions:
+      security-events: write
+      contents: read
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
@@ -61,12 +64,12 @@ jobs:
         with:
           image-ref: "${{ env.IMAGE_NAME }}:${{ github.sha }}"
           format: "table"
-          exit-code: "1"            # ❌ Bloquea el pipeline si hay CRITICAL
+          exit-code: "1"
           ignore-unfixed: true
           vuln-type: "os,library"
-          severity: "CRITICAL"      # Solo bloquea en CRITICAL
+          severity: "CRITICAL"
 
-      - name: Escaneo de vulnerabilidades con Trivy (filesystem / deps)
+      - name: Escaneo de vulnerabilidades con Trivy (filesystem)
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: "fs"
@@ -74,10 +77,10 @@ jobs:
           format: "sarif"
           output: "trivy-results.sarif"
           severity: "CRITICAL,HIGH"
-          exit-code: "0"            # Solo reporta, no bloquea
+          exit-code: "0"
 
       - name: Subir resultados SARIF a GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: "trivy-results.sarif"
@@ -98,6 +101,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test, security-scan]
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
     outputs:
       image-tag: ${{ steps.meta.outputs.tags }}
       version: ${{ steps.version.outputs.version }}
@@ -129,7 +135,7 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build y push multi-plataforma
+      - name: Build y push
         uses: docker/build-push-action@v5
         with:
           context: ./app
@@ -147,6 +153,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
     environment:
       name: production
     steps:
@@ -158,9 +166,6 @@ jobs:
           APP_VERSION: ${{ needs.build.outputs.version }}
         run: |
           echo "✅ Desplegando versión $APP_VERSION"
-          # En un entorno real:
-          # docker-compose pull app
-          # docker-compose up -d --no-deps app
           echo "APP_VERSION=$APP_VERSION" > .env
           echo "Despliegue completado: versión $APP_VERSION"
 
